@@ -1,9 +1,11 @@
 [tool.poetry]
-name = "license_plate_recognition"
+name = "CRNN-license"
 version = "0.1.0"
 description = ""
-authors = ["Sabina Bayramova <sb.sabina00@gmail.com>"]
-
+authors = ["Sabina Bayramova <a26515969@gmail.com>"]
+packages = [
+    { include = "license_plate_recognition", from = "src" }
+]
 [tool.poetry.scripts]
 train = "license_plate_recognition.train:train"
 recognize = "license_plate_recognition.recognize:recognize"
@@ -11,8 +13,9 @@ recognize = "license_plate_recognition.recognize:recognize"
 [tool.poetry.dependencies]
 python = "^3.9"
 click = "^8.1.3"
-torch = "^1.12.1"
-torchvision = "^0.13.1"
+torch = "1.13.1+cu117"
+torchvision = "0.14.1+cu117"
+torchaudio = "0.13.1+cu117"
 torchmetrics = "^0.11.0"
 pytorch-lightning = "^1.8.3"
 matplotlib = "^3.6.2"

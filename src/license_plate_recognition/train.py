@@ -12,6 +12,8 @@ from license_plate_recognition.data.dataset import LicencePlateDataset
 import license_plate_recognition.data.utils as utils
 from license_plate_recognition.trainer import OCRModule
 from license_plate_recognition.data.dataset import custom_collate_fn
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 @click.command()
 @click.option(
@@ -32,8 +34,8 @@ from license_plate_recognition.data.dataset import custom_collate_fn
     "--n-epochs", type=int, default=10, show_default=True, help="Upper epoch limit."
 )
 @click.option(
-    "--batch-size", type=int, default=1, show_default=True, help="Batch size."
-)############################################################################################原本64 測試時先改成1
+    "--batch-size", type=int, default=8, show_default=True, help="Batch size."
+)############################################################################################原本64 測試時先改成8
 @click.option(
     "--lr",
     type=float,
@@ -69,6 +71,12 @@ from license_plate_recognition.data.dataset import custom_collate_fn
     show_default=True,
     help="Experiment name.",
 )
+@click.option(
+    "--label-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to the label mapping txt file.",
+)
 def train(
     input_dir: Path,
     val_split: float,
@@ -79,6 +87,7 @@ def train(
     ckpt_name: str,
     logs_dir: Path,
     exp_name: str,
+    label_file: Path,
 ) -> None:
     """Script that trains a model and saves it to a file."""
 
@@ -91,29 +100,32 @@ def train(
 
     # create label converter
     converter = utils.LabelConverter(dictionary=dictionary)
-
+    
     # create datasets
     click.echo("Loading datasets...")
     train_dataset = LicencePlateDataset(
-        img_dir=input_dir,
-        dictionary=dictionary,
-        train=True,
-        transform=transforms.ToTensor(),
+    img_dir=input_dir,
+    label_file=label_file or os.path.join(input_dir, "labels.txt"),
+    dictionary=dictionary,
+    train=True,
+    transform=transforms.ToTensor(),
     )
     test_dataset = LicencePlateDataset(
-        img_dir=input_dir,
-        dictionary=dictionary,
-        train=False,
-        transform=transforms.ToTensor(),
+    img_dir="data/test",
+    label_file="data/test/labels.txt" ,
+    dictionary=dictionary,
+    train=False,
+    transform=transforms.ToTensor(),
     )
 
     # split train dataset into train and valid sets
+    
     n_val = int(val_split * len(train_dataset))
     n_train = len(train_dataset) - n_val
     train_dataset, val_dataset = random_split(  # type: ignore
         train_dataset, [n_train, n_val]
     )
-
+    
     click.echo(f"Number of images in train set: {len(train_dataset)}")
     click.echo(f"Number of images in valid set: {len(val_dataset)}")
     click.echo(f"Number of images in test set: {len(test_dataset)}")
@@ -126,30 +138,36 @@ def train(
     module = OCRModule(
         learning_rate=lr, dictionary_size=len(dictionary), label_converter=converter
     )
-
+    ####改成儲存在資料夾李############################################################################################################
+    base_dir = ckpt_dir
+    existing = [d for d in os.listdir(base_dir) if d.startswith("exp")]
+    exp_id = len(existing) + 1
+    exp_dir = os.path.join(base_dir, f"exp{exp_id}")
+    os.makedirs(exp_dir, exist_ok=True)
+    ############################################################################################################################################
     logger = pl.loggers.TensorBoardLogger(save_dir=logs_dir, name=exp_name)
     #checkpoint_callback = ModelCheckpoint(
         #monitor="val_loss",mode="min", save_top_k=1, dirpath=ckpt_dir, filename=ckpt_name
     #)
     checkpoint_callback = ModelCheckpoint(
-    dirpath="checkpoints",         # 存放目錄
-    filename="last",    # 固定名稱，產出 checkpoints/last_checkpoint.ckpt
+    dirpath=exp_dir,         # 存放目錄
+    filename="{epoch}-{val_loss:.2f}",    # 固定名稱，產出 checkpoints/last_checkpoint.ckpt
     save_top_k=1,                  # 儲存一個檔案
     save_last=True                 # 明確指定存最後一個
 )
     trainer = pl.Trainer(
-        accelerator="auto",
+        accelerator="gpu",
+        devices=1,
         logger=logger,
         max_epochs=n_epochs,
         callbacks=[checkpoint_callback],
     )
     trainer.fit(
-        model=module, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader,ckpt_path="checkpoints/last.ckpt"
-    )
+        model=module, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader,ckpt_path=None)#ckpt_path="checkpoints/last.ckpt
     trainer.test(
         model=module,
         dataloaders=test_dataloader,
-        ckpt_path=os.path.join(ckpt_dir, "last.ckpt")
+        ckpt_path=os.path.join(exp_dir, "last.ckpt")
         
     )
 ###################原本的是ckpt_path=f"{os.path.join(ckpt_dir, ckpt_name)}.ckpt",
